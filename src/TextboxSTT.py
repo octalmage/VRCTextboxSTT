@@ -312,11 +312,6 @@ def play_sound(au: audio) -> None:
         log.error(traceback.format_exc())
 
 
-def set_typing_indicator(state: bool, textfield: bool = False) -> None:
-    # Disabled in fork: typing indicator triggered on noise / on manual clear,
-    # and adds no value given how fast transcription completes.
-    return
-
 
 def set_finished(state: bool) -> None:
     """
@@ -442,8 +437,6 @@ def transcribe_translate_populate(raw_audio: bytes, append: bool = False, last_t
     Returns:
         tuple[str, float]: A tuple containing the transcribed/translated text and the time taken for the operation.
     """
-    pre = time()
-    set_typing_indicator(True)
     _np_audio = listener.raw_to_np(raw_audio)
     
     main_window.set_status_label("TRANSCRIBING", "orange")
@@ -512,6 +505,8 @@ def process_forever_once():
         if main_window.config_ui_open or config.mode != 3:
             main_window.set_status_label("CANCELED - WAITING FOR INPUT", "orange")
             break
+
+        check_timeout()
 
         if pressed:
             _time_last = time()
@@ -583,6 +578,8 @@ def process_forever() -> None:
         if main_window.config_ui_open or config.mode != 2:
             main_window.set_status_label("CANCELED - WAITING FOR INPUT", "orange")
             break
+
+        check_timeout()
 
         if pressed:
             _time_last = time()
