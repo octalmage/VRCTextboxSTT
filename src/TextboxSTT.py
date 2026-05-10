@@ -313,25 +313,9 @@ def play_sound(au: audio) -> None:
 
 
 def set_typing_indicator(state: bool, textfield: bool = False) -> None:
-    """
-    Sets the typing indicator state for the textbox and/or KAT.
-
-    Args:
-        state (bool): The state of the typing indicator (True for active, False for inactive).
-        textfield (bool, optional): Indicates whether the typing indicator should be set for the textbox. 
-            Defaults to False.
-
-    Returns:
-        None
-    """
-
-    global config
-    global osc
-
-    if config.osc.use_textbox and config.osc.use_both or config.osc.use_textbox and config.osc.use_kat and not osc.isactive or not config.osc.use_kat:
-        osc.set_textbox_typing_indicator(state)
-    if config.osc.use_kat and osc.isactive and not textfield:
-        osc.set_kat_typing_indicator(state)
+    # Disabled in fork: typing indicator triggered on noise / on manual clear,
+    # and adds no value given how fast transcription completes.
+    return
 
 
 def set_finished(state: bool) -> None:
