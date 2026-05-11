@@ -59,8 +59,6 @@ class OscHandler:
 		self.osc_stt_mode_path: str = self.osc_parameter_prefix + "stt_mode"
 		self.osc_avatar_change_path: str = "/avatar/change"
 		self.osc_chatbox_path: str = "/chatbox/input"
-		self.osc_chatbox_typing_path = "/chatbox/typing"
-		self.osc_parameter_listening = self.osc_parameter_prefix + "stt_listening"
 		self.last_chatbox_text: str = ""
 		self.osc_text: str = ""
 		self.kat_target_text: str = ""
@@ -465,12 +463,6 @@ class OscHandler:
 		self.last_chatbox_text = _text
 		self.osc_client.send_message(self.osc_chatbox_path, [_text, True, self.textbox_sound_enabled])
 		self.textbox_sound_enabled = False
-
-	def set_kat_typing_indicator(self, state: bool):
-		self.osc_client.send_message(self.osc_parameter_listening, state)
-
-	def set_textbox_typing_indicator(self, state: bool):
-		self.osc_client.send_message(self.osc_chatbox_typing_path, state)
 
 	# Syncronisation loop
 	def osc_timer_loop(self):

@@ -347,14 +347,13 @@ def clear_chatbox() -> None:
     if websocket:
         websocket.set_text("")
     main_window.clear_textfield()
-    if config.osc.use_textbox and config.osc.use_both or config.osc.use_textbox and config.osc.use_kat and not osc.isactive or not config.osc.use_kat:
+    if (config.osc.use_textbox and config.osc.use_both) or (config.osc.use_textbox and config.osc.use_kat and not osc.isactive) or not config.osc.use_kat:
         osc.clear_chatbox(config.mode == 0)
     if config.osc.use_kat and osc.isactive:
         osc.clear_kat()
     if ovr.initialized and config.overlay.enabled:
         ovr.set_overlay_text("")
 
-    set_typing_indicator(False)
 
     overlay_timeout_time = 0.0
     timeout_time = 0.0
@@ -402,7 +401,7 @@ def populate_chatbox(text, cutoff: bool = False):
     if websocket:
         websocket.set_text(text)
 
-    if config.osc.use_textbox and config.osc.use_both or config.osc.use_textbox and config.osc.use_kat and not osc.isactive or not config.osc.use_kat:
+    if (config.osc.use_textbox and config.osc.use_both) or (config.osc.use_textbox and config.osc.use_kat and not osc.isactive) or not config.osc.use_kat:
         osc.set_textbox_text(text, cutoff, config.mode == 0)
 
     if config.osc.use_kat and osc.isactive:
@@ -420,7 +419,6 @@ def populate_chatbox(text, cutoff: bool = False):
     if ovr.initialized and config.overlay.enabled:
         ovr.set_overlay_text(text)
 
-    set_typing_indicator(False)
     timeout_time = time()
     overlay_timeout_time = time()
 
@@ -477,6 +475,16 @@ def should_start_new_phrase(text: str, _raw_audio: bytes, time_taken: float) -> 
     return False
 
 
+def _is_long_press() -> bool:
+    """Check if hotkey is held long enough to trigger a clear action."""
+    _timeout = time()
+    while pressed:
+        if time() - _timeout > config.listener.hold_time:
+            return True
+        sleep(0.05)
+    return False
+
+
 def process_forever_once():
     """
     Listens consistently but only transcribes once instead of continuously.
@@ -494,7 +502,6 @@ def process_forever_once():
     _raw_audio = bytes()
 
     main_window.set_button_enabled(True)
-    set_typing_indicator(True)
     set_finished(False)
     main_window.set_status_label("LISTENING", "#FF00FF")
 
@@ -508,26 +515,16 @@ def process_forever_once():
 
         check_timeout()
 
-        if pressed:
-            _time_last = time()
-            _held = False
-            while pressed:
-                if time() - _time_last > config.listener.hold_time:
-                    _held = True
-                    break
-                sleep(0.05)
-            if _held:
-                main_window.set_status_label("CLEARED", "#00008b")
-                play_sound(config.audio_feedback.sound_clear)
-                clear_chatbox()
-                break
+        if _is_long_press():
+            main_window.set_status_label("CLEARED", "#00008b")
+            play_sound(config.audio_feedback.sound_clear)
+            clear_chatbox()
+            break
         elif not listener.get_queue_empty():
-            set_typing_indicator(True)
             set_finished(False)
             _raw_audio += listener.get_queue_data()
             _time_last = time()
         elif _raw_audio != bytes() and time() - _time_last > config.listener.pause_threshold:
-            set_typing_indicator(False)
             set_finished(True)
             osc.textbox_sound_enabled = True
             play_sound(config.audio_feedback.sound_donelisten)
@@ -537,7 +534,6 @@ def process_forever_once():
 
         sleep(0.05)
 
-    set_typing_indicator(False)
     set_finished(False)
     main_window.set_button_enabled(True)
     listener.stop_listen_background()
@@ -567,7 +563,6 @@ def process_forever() -> None:
     append = False
 
     main_window.set_button_enabled(True)
-    set_typing_indicator(True)
     set_finished(False)
     main_window.set_status_label("LISTENING", "#FF00FF")
 
@@ -581,21 +576,12 @@ def process_forever() -> None:
 
         check_timeout()
 
-        if pressed:
-            _time_last = time()
-            _held = False
-            while pressed:
-                if time() - _time_last > config.listener.hold_time:
-                    _held = True
-                    break
-                sleep(0.05)
-            if _held:
-                main_window.set_status_label("CLEARED", "#00008b")
-                play_sound(config.audio_feedback.sound_clear)
-                clear_chatbox()
-                break
+        if _is_long_press():
+            main_window.set_status_label("CLEARED", "#00008b")
+            play_sound(config.audio_feedback.sound_clear)
+            clear_chatbox()
+            break
         elif not listener.get_queue_empty():
-            set_typing_indicator(True)
             set_finished(False)
             _raw_audio += listener.get_queue_data()
             _text, time_taken = transcribe_translate_populate(_raw_audio, append, last_text)
@@ -608,7 +594,6 @@ def process_forever() -> None:
             else:
                 append = False
         elif _raw_audio != bytes() and time() - _time_last > config.listener.pause_threshold:
-            set_typing_indicator(False)
             set_finished(True)
             osc.textbox_sound_enabled = True
             log.info(f"Transcript: {_text}")
@@ -618,7 +603,6 @@ def process_forever() -> None:
 
         sleep(0.05)
 
-    set_typing_indicator(False)
     set_finished(False)
     main_window.set_button_enabled(True)
     listener.stop_listen_background()
@@ -638,7 +622,6 @@ def process_loop() -> None:
     global listener
     global main_window
     global pressed
-    global listener
     global transcriber
 
     finished = False
@@ -649,7 +632,6 @@ def process_loop() -> None:
     append = False
 
     main_window.set_button_enabled(False)
-    set_typing_indicator(True)
     set_finished(finished)
     main_window.set_status_label("LISTENING", "#FF00FF")
     play_sound(config.audio_feedback.sound_listen)
@@ -660,25 +642,16 @@ def process_loop() -> None:
 
     _time_last = time()
     while True:
-        if pressed:
-            _time_last = time()
-            _held = False
-            while pressed:
-                if time() - _time_last > config.listener.hold_time:
-                    _held = True
-                    break
-                sleep(0.05)
-            if _held:
-                main_window.set_status_label("CLEARED - WAITING FOR INPUT", "#00008b")
-                play_sound(config.audio_feedback.sound_clear)
-                clear_chatbox()
-                break
-            elif _raw_audio == bytes():
-                main_window.set_status_label("CANCELED - WAITING FOR INPUT", "#00008b")
-                play_sound(config.audio_feedback.sound_timeout)
-                break
+        if _is_long_press():
+            main_window.set_status_label("CLEARED - WAITING FOR INPUT", "#00008b")
+            play_sound(config.audio_feedback.sound_clear)
+            clear_chatbox()
+            break
+        elif _raw_audio == bytes():
+            main_window.set_status_label("CANCELED - WAITING FOR INPUT", "#00008b")
+            play_sound(config.audio_feedback.sound_timeout)
+            break
         elif not listener.data_queue.empty():
-            set_typing_indicator(True)
             _raw_audio += listener.get_queue_data()
             _text, time_taken = transcribe_translate_populate(_raw_audio, append, last_text)
             _time_last = time()
@@ -703,7 +676,6 @@ def process_loop() -> None:
 
     if finished:
         log.info(f"Transcript: {_text}")
-    set_typing_indicator(False)
     set_finished(finished)
     main_window.set_button_enabled(True)
     listener.stop_listen_background()
@@ -726,7 +698,6 @@ def process_once():
 
     finished = False
     main_window.set_button_enabled(False)
-    set_typing_indicator(True)
     set_finished(finished)
     main_window.set_status_label("LISTENING", "#FF00FF")
     play_sound(config.audio_feedback.sound_listen)
@@ -738,7 +709,6 @@ def process_once():
         play_sound(config.audio_feedback.sound_timeout)
     else:
         play_sound(config.audio_feedback.sound_donelisten)
-        set_typing_indicator(True)
         main_window.set_status_label("TRANSCRIBING", "orange")
 
         if not pressed:
@@ -760,7 +730,6 @@ def process_once():
 
     if finished:
         log.info(f"Transcript: {_text}")
-    set_typing_indicator(False)
     set_finished(finished)
     main_window.set_button_enabled(True)
 
@@ -936,7 +905,6 @@ def entrybox_keyrelease(text, last_char) -> None:
             main_window.textfield.delete(osc.textbox_charlimit, len(text))
             main_window.textfield.icursor(osc.textbox_charlimit)
         _is_text_empty = text == ""
-        set_typing_indicator(not _is_text_empty, True)
         if _is_text_empty:
             clear_chatbox()
     else:
