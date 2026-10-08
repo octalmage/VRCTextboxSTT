@@ -8,12 +8,14 @@ import textwrap
 from config import overlay_config
 from psutil import process_iter
 import traceback
+from threading import Lock
 import logging
 
 log = logging.getLogger(__name__)
 
 ACTIONSETHANDLE = "/actions/textboxstt"
 STTLISTENHANDLE = "/actions/textboxstt/in/sttlisten"
+CLIPBOARDMODEHANDLE = "/actions/textboxstt/in/clipboardmode"
 
 class NotInitializedException(Exception):
     """Raised when OpenVR is not initialized."""
@@ -28,6 +30,7 @@ class OVRHandler(object):
         self._script_path = script_path
         self.initialized = False
         self.overlay_font = None
+        self._input_lock = Lock()
         
     def init(self, overlay_key: str = "i5ucc.textboxstt", overlay_name: str = "TextboxSTT"):
         if self.initialized:
@@ -44,6 +47,7 @@ class OVRHandler(object):
             openvr.VRInput().setActionManifestPath(self.action_path)
             self.action_set_handle = openvr.VRInput().getActionSetHandle(ACTIONSETHANDLE)
             self.button_action_handle = openvr.VRInput().getActionHandle(STTLISTENHANDLE)
+            self.clipboard_action_handle = openvr.VRInput().getActionHandle(CLIPBOARDMODEHANDLE)
             self.initialized = True
             if self.overlay_conf.enabled:
                 self.overlay_handle = openvr.VROverlay().createOverlay(overlay_key, overlay_name)
@@ -160,19 +164,43 @@ class OVRHandler(object):
         try:
             self._check_init()
 
-            _event = openvr.VREvent_t()
-            _has_events = True
-            while _has_events:
-                _has_events = self.application.pollNextEvent(_event)
-            _actionsets = (openvr.VRActiveActionSet_t * 1)()
-            _actionset = _actionsets[0]
-            _actionset.ulActionSet = self.action_set_handle
-            openvr.VRInput().updateActionState(_actionsets)
-            return bool(openvr.VRInput().getDigitalActionData(self.button_action_handle, openvr.k_ulInvalidInputValueHandle).bState)
+            with self._input_lock:
+                _event = openvr.VREvent_t()
+                _has_events = True
+                while _has_events:
+                    _has_events = self.application.pollNextEvent(_event)
+                _actionsets = (openvr.VRActiveActionSet_t * 1)()
+                _actionset = _actionsets[0]
+                _actionset.ulActionSet = self.action_set_handle
+                openvr.VRInput().updateActionState(_actionsets)
+                return bool(openvr.VRInput().getDigitalActionData(self.button_action_handle, openvr.k_ulInvalidInputValueHandle).bState)
         except NotInitializedException:
             return False
         except Exception:
             log.error("Error getting OVR action state: ")
+            log.error(traceback.format_exc())
+            return False
+
+    def get_clipboardmode_bstate(self) -> bool:
+        """Returns the state of the clipboard mode action"""
+
+        try:
+            self._check_init()
+
+            with self._input_lock:
+                _event = openvr.VREvent_t()
+                _has_events = True
+                while _has_events:
+                    _has_events = self.application.pollNextEvent(_event)
+                _actionsets = (openvr.VRActiveActionSet_t * 1)()
+                _actionset = _actionsets[0]
+                _actionset.ulActionSet = self.action_set_handle
+                openvr.VRInput().updateActionState(_actionsets)
+                return bool(openvr.VRInput().getDigitalActionData(self.clipboard_action_handle, openvr.k_ulInvalidInputValueHandle).bState)
+        except NotInitializedException:
+            return False
+        except Exception:
+            log.error("Error getting clipboard mode OVR action state: ")
             log.error(traceback.format_exc())
             return False
 

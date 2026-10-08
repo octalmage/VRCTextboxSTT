@@ -1,5 +1,6 @@
 import tkinter as tk
 import tkinter.scrolledtext as ScrolledText
+import threading
 import json
 import pyaudio
 import keyboard
@@ -101,6 +102,7 @@ class MainWindow(object):
         self.textfield = tk.Entry(self.tkui)
         self.textfield.configure(bg="#333333", fg="white", font=(self.FONT, 10), width=31, highlightthickness=0, insertbackground="#666666")
         self.textfield.place(x=min_x/2 - 2, y=min_y - 58, anchor="center", width=792, height=25)
+
 
     def refresh_profiles(self):
         self.configs = []
@@ -276,16 +278,16 @@ class LogFrame(tk.Frame, logging.Handler):
         self.text.insert(tk.END, text)
         self.text.yview(tk.END)
         self.text.config(state=tk.DISABLED)
-    
-    def _delete(self,start, end):
+
+    def _delete(self, index1, index2):
         self.text.config(state=tk.NORMAL)
-        self.text.delete(start, end)
+        self.text.delete(index1, index2)
         self.text.config(state=tk.DISABLED)
 
     def emit(self, record):
         if len(self.text.get(1.0, tk.END).split("\n")) > self.max_lines:
             self._delete(1.0, 2.0)
-        
+
         self._insert(self.format(record) + '\n')
 
 
@@ -531,6 +533,17 @@ class SettingsWindow:
         self.opt_clipboard_mode.bind("<Enter>", (lambda event: self.show_tooltip("Writes the transcription to the clipboard.\nIf set to 'Manual' you can press the '📋' button to copy the text to the clipboard.\nIf set to 'Always' it will automatically copy the text to the clipboard.")))
         self.opt_clipboard_mode.bind("<Leave>", self.hide_tooltip)
 
+        self.label_clipboard_hotkey = tk.Label(master=self.tkui, bg="#333333", fg="white", text='Clipboard Hotkey', font=(self.FONT, 12))
+        self.label_clipboard_hotkey.grid(row=14, column=0, padx=PADX_L, pady=PADY, sticky='es')
+        self.label_clipboard_hotkey.bind("<Enter>", (lambda event: self.show_tooltip("Hold this key while speaking to copy to clipboard instead of sending over OSC.\nClick on the button and press the key you want to use.\nLeave empty to disable.")))
+        self.label_clipboard_hotkey.bind("<Leave>", self.hide_tooltip)
+        self.clipboard_key = self.config.clipboard_hotkey
+        self.button_clipboard_hotkey = tk.Button(self.tkui, text=self.config.clipboard_hotkey if self.config.clipboard_hotkey else "(none)", command=self.button_clipboard_hotkey_pressed)
+        self.button_clipboard_hotkey.configure(bg="#333333", fg="white", font=(self.FONT, 10), highlightthickness=0, width=23, anchor="center", activebackground="#555555", activeforeground="white")
+        self.button_clipboard_hotkey.grid(row=14, column=1, padx=PADX_R, pady=PADY, sticky='ws')
+        self.button_clipboard_hotkey.bind("<Enter>", (lambda event: self.show_tooltip("Hold this key while speaking to copy to clipboard instead of sending over OSC.\nClick on the button and press the key you want to use.\nLeave empty to disable.")))
+        self.button_clipboard_hotkey.bind("<Leave>", self.hide_tooltip)
+
         self.label_pause_threshold = tk.Label(master=self.tkui, bg="#333333", fg="white", text='Pause Threshold', font=(self.FONT, 12))
         self.label_pause_threshold.grid(row=0, column=4, padx=PADX_L, pady=PADY, sticky='es')
         self.label_pause_threshold.bind("<Enter>", (lambda event: self.show_tooltip("Amount of seconds to wait when current energy is under the 'energy_threshold'.\n Only used in 'realtime' and 'once_continuos' mode.")))
@@ -660,8 +673,8 @@ class SettingsWindow:
         self.label_mic.grid(row=9, column=4, padx=PADX_L, pady=PADY, sticky='es')
         self.label_mic.bind("<Enter>", (lambda event: self.show_tooltip("What microphone to use. 'Default' will use your systems default microphone.")))
         self.label_mic.bind("<Leave>", self.hide_tooltip)
-        self.option_index = 0 if self.config.listener.microphone_index is None else int(self.config.listener.microphone_index) + 1
         self.options_mic = self.get_sound_devices()
+        self.option_index = self.resolve_mic_option_index()
         self.value_mic = tk.StringVar(self.tkui)
         try:
             self.value_mic.set(self.options_mic[self.option_index])
@@ -871,12 +884,36 @@ class SettingsWindow:
                 res.append([i, "Unknown Device"])
         return res
 
+    def resolve_mic_option_index(self):
+        """Find the saved microphone by index, then name."""
+        saved_index = self.config.listener.microphone_index
+        saved_name = self.config.listener.microphone_name
+        if saved_index is None:
+            return 0
+        for pos, entry in enumerate(self.options_mic):
+            if isinstance(entry, list) and entry[0] == int(saved_index):
+                return pos
+        if saved_name:
+            for pos, entry in enumerate(self.options_mic):
+                if isinstance(entry, list) and entry[1] == saved_name:
+                    return pos
+        return 0
+
     def get_audiodevice_index(self):
         option = self.value_mic.get()
         if option != "Default":
             return int(option[1:option.index(',')])
         else:
             return None
+
+    def get_audiodevice_name(self):
+        index = self.get_audiodevice_index()
+        if index is None:
+            return None
+        for entry in self.options_mic:
+            if isinstance(entry, list) and entry[0] == index:
+                return entry[1]
+        return None
         
 
     def save(self):
@@ -891,6 +928,7 @@ class SettingsWindow:
         self.config.whisper.language = None if self.value_language.get() == "Auto Detect" else self.value_language.get()
         self.config.translator.language = None if self.value_translate.get() == "OFF" else self.value_translate.get()
         self.config.hotkey = self.set_key
+        self.config.clipboard_hotkey = self.clipboard_key
         _realtime = 0
         if self.value_mode.get() == "once_continuous":
             _realtime = 1
@@ -907,6 +945,7 @@ class SettingsWindow:
         self.config.listener.hold_time = float(self.entry_hold_time.get())
         self.config.listener.phrase_time_limit = float(self.entry_phrase_time_limit.get())
         self.config.listener.microphone_index = self.get_audiodevice_index()
+        self.config.listener.microphone_name = self.get_audiodevice_name()
         self.config.osc.use_textbox = True if self.value_use_textbox.get() == "ON" else False
         self.config.osc.use_kat = True if self.value_use_kat.get() == "ON" else False
         self.config.osc.use_both = True if self.value_use_both.get() == "ON" else False
@@ -938,15 +977,72 @@ class SettingsWindow:
         except tk.TclError:
             pass
 
+    def _capture_hotkey_async(self, on_result, prompt_button, idle_text_fn):
+        """Capture keys on a worker and poll from Tk's thread."""
+        result = {"key": None, "done": False}
+
+        def worker():
+            try:
+                result["key"] = keyboard.read_hotkey()
+            except Exception:
+                log.error("Hotkey capture failed:")
+                log.error(traceback.format_exc())
+                result["key"] = None
+            result["done"] = True
+
+        def poll():
+            if not result["done"]:
+                try:
+                    self.tkui.after(50, poll)
+                except Exception:
+                    pass
+                return
+
+            try:
+                on_result(result["key"])
+            except Exception:
+                log.error("Hotkey result apply failed:")
+                log.error(traceback.format_exc())
+            try:
+                prompt_button.configure(text=idle_text_fn(), state="normal")
+                self.update()
+            except Exception:
+                pass
+
+        threading.Thread(target=worker, daemon=True).start()
+        poll()
+
     def button_hotkey_pressed(self):
         self.button_hotkey.configure(text="ESC to cancel...", state="disabled", disabledforeground="white")
         self.update()
-        key = keyboard.read_hotkey()
-        if key != "esc":
-            self.set_key = key
-        self.button_hotkey.configure(text=self.set_key, state="normal")
+
+        def on_result(key):
+            if key and key != "esc":
+                self.set_key = key
+
+        self._capture_hotkey_async(
+            on_result,
+            self.button_hotkey,
+            lambda: self.set_key,
+        )
+
+    def button_clipboard_hotkey_pressed(self):
+        self.button_clipboard_hotkey.configure(text="ESC to cancel or BACKSPACE to clear...", state="disabled", disabledforeground="white")
         self.update()
 
+        def on_result(key):
+            if key == "esc" or key is None:
+                return
+            if key == "backspace":
+                self.clipboard_key = ""
+            else:
+                self.clipboard_key = key
+
+        self._capture_hotkey_async(
+            on_result,
+            self.button_clipboard_hotkey,
+            lambda: self.clipboard_key if self.clipboard_key else "(none)",
+        )
     def show_tooltip(self, text):
         # Create a new top-level window with the tooltip text
         self.tooltip_window = tk.Toplevel(self.tkui, bg="black")

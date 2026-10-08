@@ -1,5 +1,6 @@
 import speech_recognition as sr
 import numpy as np
+import pyaudio
 from queue import Queue
 from config import listener_config
 import traceback
@@ -13,6 +14,7 @@ class ListenHandler(object):
         self.rec = sr.Recognizer()
         self.source = sr.Microphone(sample_rate=16000)
         self.data_queue = Queue()
+        self.stop_listening = None
         self.set_config(config)
 
     def set_config(self, config: listener_config):
@@ -21,7 +23,42 @@ class ListenHandler(object):
         self.rec.dynamic_energy_threshold = bool(self.config.dynamic_energy_threshold)
         self.rec.energy_threshold = self.config.energy_threshold
         self.rec.pause_threshold = self.config.pause_threshold
-        self.source.device_index = int(self.config.microphone_index) if self.config.microphone_index else None
+        resolved_index = self._reconcile_device_index()
+        self.source.device_index = int(resolved_index) if resolved_index is not None else None
+
+    def _reconcile_device_index(self):
+        """Resolve the saved microphone after device renumbering."""
+        saved_index = self.config.microphone_index
+        saved_name = getattr(self.config, "microphone_name", None)
+        if saved_index is None:
+            return None
+        if not saved_name:
+            return saved_index
+        try:
+            p = pyaudio.PyAudio()
+            try:
+                numdev = p.get_host_api_info_by_index(0).get("deviceCount")
+                current_name = None
+                if 0 <= saved_index < numdev:
+                    info = p.get_device_info_by_host_api_device_index(0, saved_index)
+                    if info.get("maxInputChannels") > 0:
+                        current_name = info.get("name")
+                if current_name == saved_name:
+                    return saved_index
+                for i in range(numdev):
+                    try:
+                        info = p.get_device_info_by_host_api_device_index(0, i)
+                        if info.get("maxInputChannels") > 0 and info.get("name") == saved_name:
+                            log.info(f"Microphone index for '{saved_name}' changed: {saved_index} -> {i}")
+                            return i
+                    except Exception:
+                        continue
+            finally:
+                p.terminate()
+        except Exception:
+            log.error("Error reconciling microphone device index: ")
+            log.error(traceback.format_exc())
+        return saved_index
 
     def listen_once(self) -> np.ndarray:
         """

@@ -13,6 +13,15 @@
                 },
                 "mode" : "button",
                 "path" : "/user/hand/left/input/a"
+             },
+             {
+                "inputs" : {
+                   "click" : {
+                      "output" : "/actions/textboxstt/in/clipboardmode"
+                   }
+                },
+                "mode" : "button",
+                "path" : "/user/hand/left/input/b"
              }
           ]
        }

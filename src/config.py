@@ -219,6 +219,7 @@ class translator_config(object):
 @dataclass
 class listener_config(object):
     microphone_index: Optional[int] = None
+    microphone_name: Optional[str] = None
     dynamic_energy_threshold: bool = False
     energy_threshold: int = 200
     pause_threshold: float = 3.0
@@ -391,6 +392,7 @@ class config_struct(object):
     last_position_y: int = 125
     mode: int = 1
     hotkey: str = "f1"
+    clipboard_hotkey: str = ""
     text_timeout: float = 30.0
     always_clipboard: bool = False
     audio_feedback: audio_feedback_config = field(default_factory=audio_feedback_config)

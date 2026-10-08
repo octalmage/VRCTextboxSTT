@@ -60,10 +60,6 @@ try:
         log.error("Failed to read version file.")
     log.info(f"VRCTextboxSTT {VERSION} by I5UCC")
 
-    python_version = sys.version.split(" ")[0].strip()
-    if "3.12" not in python_version and "v2" in VERSION:
-        ctypes.windll.user32.MessageBoxW(0, f"You are using an unsupported version of Python ({python_version}) for this version of TextboxSTT ({VERSION}), please reinstall the newest version of TextboxSTT from github.", "TextboxSTT - Unsupported Python Version", 0)
-
     try:
         os.mkdir(CONFIGS_PATH)
     except FileExistsError:
@@ -123,6 +119,7 @@ curr_time: float = 0.0
 pressed: bool = False
 holding: bool = False
 held: bool = False
+clipboard_mode_latched: bool = False
 thread_process: Thread = None
 thread_pressed: Thread = None
 initialized: bool = False
@@ -392,6 +389,15 @@ def populate_chatbox(text, cutoff: bool = False):
 
     clipboard.content = text
 
+    if is_clipboard_mode():
+        clipboard.set_clipboard(text)
+        main_window.set_text_label(text)
+        if ovr.initialized and config.overlay.enabled:
+            ovr.set_overlay_text(text)
+        timeout_time = time()
+        overlay_timeout_time = time()
+        return
+
     if config.always_clipboard:
         clipboard.set_clipboard(text)
 
@@ -435,6 +441,7 @@ def transcribe_translate_populate(raw_audio: bytes, append: bool = False, last_t
     Returns:
         tuple[str, float]: A tuple containing the transcribed/translated text and the time taken for the operation.
     """
+    pre = time()
     _np_audio = listener.raw_to_np(raw_audio)
     
     main_window.set_status_label("TRANSCRIBING", "orange")
@@ -496,6 +503,8 @@ def process_forever_once():
     global listener
     global transcriber
 
+    is_clipboard_mode()
+
     play_sound(config.audio_feedback.sound_listen)
 
     _text = ""
@@ -531,12 +540,17 @@ def process_forever_once():
             _text, time_taken = transcribe_translate_populate(_raw_audio)
             log.info(f"Transcript: {_text}")
             _raw_audio = bytes()
+            if _text:
+                paste_clipboard_mode_text()
+            clear_clipboard_mode_latch()
 
         sleep(0.05)
 
     set_finished(False)
     main_window.set_button_enabled(True)
     listener.stop_listen_background()
+    clear_clipboard_mode_latch()
+
 
 
 def process_forever() -> None:
@@ -554,6 +568,8 @@ def process_forever() -> None:
     global pressed
     global listener
     global transcriber
+
+    is_clipboard_mode()
 
     play_sound(config.audio_feedback.sound_listen)
 
@@ -600,12 +616,17 @@ def process_forever() -> None:
             _raw_audio = bytes()
             append = False
             last_text = ""
+            if _text:
+                paste_clipboard_mode_text()
+            clear_clipboard_mode_latch()
 
         sleep(0.05)
 
     set_finished(False)
     main_window.set_button_enabled(True)
     listener.stop_listen_background()
+    clear_clipboard_mode_latch()
+
 
 
 def process_loop() -> None:
@@ -623,6 +644,8 @@ def process_loop() -> None:
     global main_window
     global pressed
     global transcriber
+
+    is_clipboard_mode()
 
     finished = False
     _text = ""
@@ -646,10 +669,6 @@ def process_loop() -> None:
             main_window.set_status_label("CLEARED - WAITING FOR INPUT", "#00008b")
             play_sound(config.audio_feedback.sound_clear)
             clear_chatbox()
-            break
-        elif _raw_audio == bytes():
-            main_window.set_status_label("CANCELED - WAITING FOR INPUT", "#00008b")
-            play_sound(config.audio_feedback.sound_timeout)
             break
         elif not listener.data_queue.empty():
             _raw_audio += listener.get_queue_data()
@@ -676,9 +695,12 @@ def process_loop() -> None:
 
     if finished:
         log.info(f"Transcript: {_text}")
+        paste_clipboard_mode_text()
     set_finished(finished)
     main_window.set_button_enabled(True)
     listener.stop_listen_background()
+    clear_clipboard_mode_latch()
+
 
 
 def process_once():
@@ -695,6 +717,8 @@ def process_once():
     global main_window
     global pressed
     global listener
+
+    is_clipboard_mode()
 
     finished = False
     main_window.set_button_enabled(False)
@@ -730,8 +754,11 @@ def process_once():
 
     if finished:
         log.info(f"Transcript: {_text}")
+        paste_clipboard_mode_text()
     set_finished(finished)
     main_window.set_button_enabled(True)
+    clear_clipboard_mode_latch()
+
 
 
 def get_trigger_state() -> bool:
@@ -764,6 +791,86 @@ def get_trigger_state() -> bool:
         return is_pressed(config.hotkey) and not modifier_pressed
     else:
         return hotkey_pressed
+
+
+def is_clipboard_mode() -> bool:
+    """Check and latch clipboard mode for the current utterance."""
+    global config
+    global ovr
+    global initialized
+    global clipboard_mode_latched
+
+    if not initialized:
+        return False
+
+    if clipboard_mode_latched:
+        return True
+
+    if ovr.initialized and ovr.get_clipboardmode_bstate():
+        clipboard_mode_latched = True
+        return True
+
+    if config.clipboard_hotkey:
+        hotkey_pressed = is_pressed(config.clipboard_hotkey)
+        if hotkey_pressed and "+" not in config.clipboard_hotkey:
+            modifier_pressed = False
+            for modifier in all_modifiers:
+                try:
+                    if is_pressed(modifier):
+                        modifier_pressed = True
+                        break
+                except ValueError:
+                    pass
+            if is_pressed(config.clipboard_hotkey) and not modifier_pressed:
+                clipboard_mode_latched = True
+                return True
+            return False
+        elif hotkey_pressed:
+            clipboard_mode_latched = True
+            return True
+
+    return False
+
+
+def paste_clipboard_mode_text() -> None:
+    """Paste latched text with Win32; keyboard.send() can wedge Windows hooks."""
+    global clipboard_mode_latched
+    global clipboard
+
+    if not clipboard_mode_latched or not clipboard:
+        return
+
+    text = clipboard.content
+    if not text:
+        return
+
+    try:
+        clipboard.set_clipboard(text)
+        sleep(0.05)
+        send_ctrl_v()
+        log.info(f"Pasted clipboard mode text into focused field: {text}")
+    except Exception:
+        log.error("Failed to paste clipboard mode text:")
+        log.error(traceback.format_exc())
+
+
+def send_ctrl_v() -> None:
+    """Send Ctrl+V to the foreground window using Win32 key events."""
+    user32 = ctypes.windll.user32
+    keyeventf_keyup = 0x0002
+    vk_control = 0x11
+    vk_v = 0x56
+
+    user32.keybd_event(vk_control, 0, 0, 0)
+    user32.keybd_event(vk_v, 0, 0, 0)
+    user32.keybd_event(vk_v, 0, keyeventf_keyup, 0)
+    user32.keybd_event(vk_control, 0, keyeventf_keyup, 0)
+
+
+def clear_clipboard_mode_latch() -> None:
+    """Clear the clipboard-mode latch so the next utterance can go to VRChat again."""
+    global clipboard_mode_latched
+    clipboard_mode_latched = False
 
 
 def check_timeout() -> None:

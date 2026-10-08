@@ -17,6 +17,10 @@
         {
             "name": "/actions/textboxstt/in/STTListen",
             "type": "boolean"
+        },
+        {
+            "name": "/actions/textboxstt/in/ClipboardMode",
+            "type": "boolean"
         }
     ]
 }

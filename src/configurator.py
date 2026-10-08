@@ -143,9 +143,15 @@ class Configurator(tk.Tk):
             self.config.listener.energy_threshold = int(entry_energy.get())
             option = value_mic.get()
             tmp = None
+            tmp_name = None
             if option != "Default":
                 tmp = int(option[1:option.index(',')])
+                for entry in options_mic:
+                    if isinstance(entry, list) and entry[0] == tmp:
+                        tmp_name = entry[1]
+                        break
             self.config.listener.microphone_index = tmp
+            self.config.listener.microphone_name = tmp_name
             self.next_page()
         button_next = tk.Button(page, text="Save", command=save, bg="#333333", fg="white", font=(self.FONT, 10), width=20, height=1)
         button_next.pack(padx=0, pady=10)
